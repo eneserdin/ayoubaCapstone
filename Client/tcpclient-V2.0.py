@@ -4,7 +4,7 @@ from socket import *
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP, AES
 from Crypto.Random import get_random_bytes
-from Crypto.Util.Padding import pad, unpad   # <--- USE THIS
+from Crypto.Util.Padding import pad, unpad  
 from time import sleep
 
 # GPIO setup
@@ -18,7 +18,7 @@ PORT = 12000
 
 def generate_rsa_key_pair():
     key = RSA.generate(2048)
-    private_key = key.exportKey()          # PyCrypto style
+    private_key = key.exportKey()          
     public_key = key.publickey().exportKey()
     return private_key, public_key
 

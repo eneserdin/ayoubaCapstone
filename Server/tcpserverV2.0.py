@@ -2,7 +2,7 @@ from socket import *
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP, AES
 from Crypto.Random import get_random_bytes
-from Crypto.Util.Padding import pad, unpad   # <-- use built-in padding
+from Crypto.Util.Padding import pad, unpad   
 
 # Server Configuration
 PORT = 12000
@@ -15,7 +15,8 @@ def rsa_encrypt(plaintext, public_key):
 def aes_encrypt(plaintext, key):
     cipher_aes = AES.new(key, AES.MODE_CBC)
     iv = cipher_aes.iv
-    # Pad the plaintext to AES block size (16 bytes)
+
+# Pad the plaintext to AES block size (16 bytes)
     padded = pad(plaintext.encode(), AES.block_size)
     ciphertext = cipher_aes.encrypt(padded)
     return iv + ciphertext
