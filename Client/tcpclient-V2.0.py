@@ -64,10 +64,10 @@ def main():
                 response = aes_decrypt(encrypted_response, session_key)
 
                 if response.lower() == "on":
-                    GPIO.output(20, True)
+                    GPIO.output(22, True)
                     print(f"Room too dark! (Value: {light_value}) Firing up the Red LED")
                 else:
-                    GPIO.output(20, False)
+                    GPIO.output(22, False)
                     print(f"Enough light! (Value: {light_value}) Red LED off!!!")
 
                 sleep(3)

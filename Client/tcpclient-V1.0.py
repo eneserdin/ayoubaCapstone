@@ -8,7 +8,7 @@ GPIO.setmode(GPIO.BCM)
 ADC0834.setup()
 GPIO.setup(20, GPIO.OUT)
 
-serverName = '10.8.0.26'  
+serverName = '10.8.0.5'  
 serverPort = 12000
 
 try:
@@ -28,10 +28,10 @@ try:
             
         # Control LED based on response
         if response == b'on':
-            GPIO.output(20, True)
+            GPIO.output(22, True)
             print(f"Room too dark! (Value: {lightVal}) Firing up the Red LED")
         else:
-            GPIO.output(20, False)
+            GPIO.output(22, False)
             print(f"Enough light! (Value: {lightVal}) Red LED off!!!")
                 
             
