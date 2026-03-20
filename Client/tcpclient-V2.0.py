@@ -10,10 +10,10 @@ from time import sleep
 # GPIO setup
 GPIO.setmode(GPIO.BCM)
 ADC0834.setup()
-GPIO.setup(20, GPIO.OUT)
+GPIO.setup(22, GPIO.OUT)
 
 # Configuration
-HOST = '10.8.0.26'
+HOST = '10.8.0.5'
 PORT = 12000
 
 def generate_rsa_key_pair():

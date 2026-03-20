@@ -6,7 +6,7 @@ from time import sleep
 # GPIO setup
 GPIO.setmode(GPIO.BCM)
 ADC0834.setup()
-GPIO.setup(20, GPIO.OUT)
+GPIO.setup(22, GPIO.OUT)
 
 serverName = '10.8.0.5'  
 serverPort = 12000
