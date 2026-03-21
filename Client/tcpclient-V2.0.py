@@ -4,8 +4,11 @@ from socket import *
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP, AES
 from Crypto.Random import get_random_bytes
-from Crypto.Util.Padding import pad, unpad  
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Protocol.KDF import HKDF
 from time import sleep
+import hmac
+import hashlib
 
 # GPIO setup
 GPIO.setmode(GPIO.BCM)
@@ -18,7 +21,7 @@ PORT = 12000
 
 def generate_rsa_key_pair():
     key = RSA.generate(2048)
-    private_key = key.exportKey()          
+    private_key = key.exportKey()
     public_key = key.publickey().exportKey()
     return private_key, public_key
 
@@ -26,20 +29,42 @@ def rsa_decrypt(ciphertext, private_key):
     cipher_rsa = PKCS1_OAEP.new(RSA.importKey(private_key))
     return cipher_rsa.decrypt(ciphertext)
 
-def aes_encrypt(plaintext, key):
-    cipher_aes = AES.new(key, AES.MODE_CBC)
-    iv = cipher_aes.iv
-    # ✅ BUILT-IN PKCS7 PADDING
-    ciphertext = cipher_aes.encrypt(pad(plaintext.encode(), AES.block_size))
-    return iv + ciphertext
+def derive_keys(session_key):
+    # Derive encryption key (16 bytes) and MAC key (32 bytes) using HKDF
+    enc_key = HKDF(session_key, 16, b'enc', hashlib.sha256)
+    mac_key = HKDF(session_key, 32, b'mac', hashlib.sha256)
+    return enc_key, mac_key
 
-def aes_decrypt(ciphertext, key):
-    iv = ciphertext[:16]
-    ciphertext = ciphertext[16:]
-    cipher_aes = AES.new(key, AES.MODE_CBC, iv)
-    # ✅ BUILT-IN UNPADDING
-    decrypted = unpad(cipher_aes.decrypt(ciphertext), AES.block_size)
-    return decrypted.decode()
+def aes_encrypt_with_mac(plaintext, enc_key, mac_key):
+    # CBC encryption with IV
+    iv = get_random_bytes(16)
+    cipher = AES.new(enc_key, AES.MODE_CBC, iv)
+    padded = pad(plaintext.encode(), AES.block_size)
+    ciphertext = cipher.encrypt(padded)
+
+    # Compute HMAC over IV + ciphertext
+    mac = hmac.new(mac_key, iv + ciphertext, hashlib.sha256).digest()
+
+    # Return IV + ciphertext + MAC
+    return iv + ciphertext + mac
+
+def aes_decrypt_with_mac(data, enc_key, mac_key):
+    # Split data: IV (16) + ciphertext (variable) + MAC (32)
+    if len(data) < 16 + 32:
+        raise ValueError("Data too short")
+    iv = data[:16]
+    mac = data[-32:]
+    ciphertext = data[16:-32]
+
+    # Verify MAC first
+    computed_mac = hmac.new(mac_key, iv + ciphertext, hashlib.sha256).digest()
+    if not hmac.compare_digest(computed_mac, mac):
+        raise ValueError("MAC verification failed")
+
+    # Decrypt and unpad
+    cipher = AES.new(enc_key, AES.MODE_CBC, iv)
+    plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
+    return plaintext.decode()
 
 def main():
     private_key, public_key = generate_rsa_key_pair()
@@ -54,14 +79,19 @@ def main():
         session_key = rsa_decrypt(encrypted_session_key, private_key)
         print("Secure session established (session key received)")
 
+        # Derive encryption and MAC keys from session key
+        enc_key, mac_key = derive_keys(session_key)
+
         while True:
             try:
                 light_value = ADC0834.getResult(0)
-                encrypted_message = aes_encrypt(str(light_value), session_key)
-                client_socket.send(encrypted_message)   # ✅ direct send
+                encrypted_message = aes_encrypt_with_mac(str(light_value), enc_key, mac_key)
+                client_socket.send(encrypted_message)
 
                 encrypted_response = client_socket.recv(2048)
-                response = aes_decrypt(encrypted_response, session_key)
+                if not encrypted_response:
+                    break
+                response = aes_decrypt_with_mac(encrypted_response, enc_key, mac_key)
 
                 if response.lower() == "on":
                     GPIO.output(22, True)

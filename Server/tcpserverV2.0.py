@@ -2,32 +2,47 @@ from socket import *
 from Crypto.PublicKey import RSA
 from Crypto.Cipher import PKCS1_OAEP, AES
 from Crypto.Random import get_random_bytes
-from Crypto.Util.Padding import pad, unpad   
+from Crypto.Util.Padding import pad, unpad
+from Crypto.Protocol.KDF import HKDF
+import hmac
+import hashlib
 
 # Server Configuration
 PORT = 12000
 
 def rsa_encrypt(plaintext, public_key):
-    # public_key is bytes, importKey works with both PyCrypto and PyCryptodome
     cipher_rsa = PKCS1_OAEP.new(RSA.importKey(public_key))
     return cipher_rsa.encrypt(plaintext)
 
-def aes_encrypt(plaintext, key):
-    cipher_aes = AES.new(key, AES.MODE_CBC)
-    iv = cipher_aes.iv
+def derive_keys(session_key):
+    # Derive encryption key (16 bytes) and MAC key (32 bytes) using HKDF
+    enc_key = HKDF(session_key, 16, b'enc', hashlib.sha256)
+    mac_key = HKDF(session_key, 32, b'mac', hashlib.sha256)
+    return enc_key, mac_key
 
-# Pad the plaintext to AES block size (16 bytes)
+def aes_encrypt_with_mac(plaintext, enc_key, mac_key):
+    iv = get_random_bytes(16)
+    cipher = AES.new(enc_key, AES.MODE_CBC, iv)
     padded = pad(plaintext.encode(), AES.block_size)
-    ciphertext = cipher_aes.encrypt(padded)
-    return iv + ciphertext
+    ciphertext = cipher.encrypt(padded)
 
-def aes_decrypt(ciphertext, key):
-    iv = ciphertext[:16]
-    ciphertext = ciphertext[16:]
-    cipher_aes = AES.new(key, AES.MODE_CBC, iv)
-    # Decrypt and unpad
-    decrypted = unpad(cipher_aes.decrypt(ciphertext), AES.block_size)
-    return decrypted.decode()
+    mac = hmac.new(mac_key, iv + ciphertext, hashlib.sha256).digest()
+    return iv + ciphertext + mac
+
+def aes_decrypt_with_mac(data, enc_key, mac_key):
+    if len(data) < 16 + 32:
+        raise ValueError("Data too short")
+    iv = data[:16]
+    mac = data[-32:]
+    ciphertext = data[16:-32]
+
+    computed_mac = hmac.new(mac_key, iv + ciphertext, hashlib.sha256).digest()
+    if not hmac.compare_digest(computed_mac, mac):
+        raise ValueError("MAC verification failed")
+
+    cipher = AES.new(enc_key, AES.MODE_CBC, iv)
+    plaintext = unpad(cipher.decrypt(ciphertext), AES.block_size)
+    return plaintext.decode()
 
 def main():
     server_socket = socket(AF_INET, SOCK_STREAM)
@@ -40,12 +55,15 @@ def main():
         print("Connection from", addr)
 
         try:
-            # Receive client's public key (as bytes, NOT decoded)
-            client_public_key = client_socket.recv(4096)   # <-- no .decode()
+            # Receive client's public key
+            client_public_key = client_socket.recv(4096)
             print("Received client public key")
 
             # Generate random AES session key (16 bytes for AES-128)
             session_key = get_random_bytes(16)
+
+            # Derive encryption and MAC keys from session key
+            enc_key, mac_key = derive_keys(session_key)
 
             # Encrypt session key with client's public key
             encrypted_session_key = rsa_encrypt(session_key, client_public_key)
@@ -59,20 +77,20 @@ def main():
                     if not data:
                         break
 
-                    # Decrypt message using AES with padding
-                    decrypted_message = aes_decrypt(data, session_key)
+                    # Decrypt message (MAC is verified inside)
+                    decrypted_message = aes_decrypt_with_mac(data, enc_key, mac_key)
                     try:
                         light_value = int(decrypted_message.strip())
                         print(f"Received light value: {light_value}")
 
-                        # Response logic (threshold 180 matches client expectation)
+                        # Response logic
                         if light_value <= 180:
                             response = "ON"
                         else:
                             response = "OFF"
 
-                        # Encrypt response using AES with padding
-                        encrypted_response = aes_encrypt(response, session_key)
+                        # Encrypt response with MAC
+                        encrypted_response = aes_encrypt_with_mac(response, enc_key, mac_key)
                         client_socket.send(encrypted_response)
                         print(f"Sent response: {response}")
 
